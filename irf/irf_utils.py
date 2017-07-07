@@ -165,7 +165,7 @@ def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
 
     # CLASSIFICATION metrics calculations
 
-    # Cohen’s kappa: a statistic that measures inter-annotator agreement.
+    # Cohen's kappa: a statistic that measures inter-annotator agreement.
     # cohen_kappa_score = metrics.cohen_kappa_score(y1, y2[, labels, ...])
 
     # Compute Area Under the Curve (AUC) using the trapezoidal rule
