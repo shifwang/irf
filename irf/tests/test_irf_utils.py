@@ -1,6 +1,6 @@
 #!/usr/bin/python
-from irf.tree import irf_jupyter_utils
-from irf.tree import irf_utils
+from irf import irf_jupyter_utils
+from irf import irf_utils
 from sklearn.datasets import load_breast_cancer
 import numpy as np
 from functools import reduce

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-from irf.tree import irf_utils
+from irf import irf_utils
 import numpy as np
 
 
