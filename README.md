@@ -74,7 +74,7 @@ Shamindra Shrotriya <https://github.com/shamindras>
 
 Runjing(Bryan) Liu <runjing_liu@berkeley.edu>
 
-Stéfan van der Walt <stefan(at)mentat.za.net>
+Stéfan van der Walt <stefan@mentat.za.net>
 
 Chris Holdgraf <choldgraf@berkeley.edu>
 
