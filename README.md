@@ -69,10 +69,16 @@ The proposed feature combination and their scores:
 print(stability_score)
 ```
 Contributors:
+
 Shamindra Shrotriya <https://github.com/shamindras>
+
 Runjing(Bryan) Liu <runjing_liu@berkeley.edu>
+
 Stéfan van der Walt <stefan(at)mentat.za.net>
+
 Chris Holdgraf <choldgraf@berkeley.edu>
+
 Karl Kumbier <kkumbier@berkeley.edu>
+
 Yu(Hue) Wang <wang.yu@berkeley.edu>
 
