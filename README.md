@@ -1,4 +1,9 @@
 # irf
+The algorithm details are available at: 
+
+Sumanta Basu, Karl Kumbier, James B. Brown, Bin Yu,  Iterative Random Forests to detect predictive and stable high-order interactions, 
+<https://arxiv.org/abs/1706.08457>
+
 ## Basic setup and installation
 Before the installation, please make sure you installed the following packages correctly via pip:
 ```bash
