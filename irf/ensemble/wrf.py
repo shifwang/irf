@@ -6,33 +6,25 @@ class wrf(RandomForestClassifier):
                 # Initially feature weights are None
                 feature_importances = None
                 
-                # Update the dictionary of all our RF weights
-                all_rf_weights["rf_weight{}".format(k)] = feature_importances
-                
-                # fit RF feature weights i.e. initially None
-                rf = RandomForestClassifier(n_estimators=n_estimators)
-                
                 # fit the classifier
-                rf.fit(X=X,
-                       y=y_train,
-                       feature_weight=all_rf_weights["rf_weight{}".format(k)])
-                
-                # Update feature weights using the
-                # new feature importance score
-                feature_importances = rf.feature_importances_
-                    
-                # Load the weights for the next iteration
-                all_rf_weights["rf_weight{}".format(k + 1)] = feature_importances
-
-            else:
-                # fit weighted RF
-                # fit the classifier
-                super.fit(
-                        X=X_train,
-                        y=y_train,
-                        feature_weight=feature_importances])
+                super(wrf, self).fit(X=X,
+                         y=y,
+                         feature_weight=feature_importances)
                 
                 # Update feature weights using the
                 # new feature importance score
                 feature_importances = self.feature_importances_
+
+            else:
+                # fit weighted RF
+                # fit the classifier
+                super(wrf, self).fit(
+                        X=X,
+                        y=y,
+                        feature_weight=feature_importances)
+                
+                # Update feature weights using the
+                # new feature importance score
+                feature_importances = self.feature_importances_
+        return self
                 
