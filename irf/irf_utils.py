@@ -471,6 +471,7 @@ def get_rit_tree_data(all_rf_tree_data,
     """
     A wrapper for the Random Intersection Trees (RIT) algorithm
     """
+    #FIXME no prevalence cutoff for rit
 
     all_rit_tree_outputs = {}
     for idx, rit_tree in enumerate(range(M)):
@@ -605,6 +606,10 @@ def weighted_random_choice(values, weights):
     Discrete distribution, drawing values with the frequency
     specified in weights.
     Weights do not need to be normalized.
+    Parameters:
+        values: list of values 
+    Return:
+        a generator that do weighted sampling
     """
     if not len(weights) == len(values):
         raise ValueError('Equal number of values and weights expected')
@@ -613,6 +618,8 @@ def weighted_random_choice(values, weights):
     # normalize the weights
     weights = weights / weights.sum()
     dist = stats.rv_discrete(values=(range(len(weights)), weights))
+    #FIXME this part should be improved by assigning values directly
+    #    to the stats.rv_discrete function.  -- Yu
 
     while True:
         yield values[dist.rvs()]
@@ -1024,6 +1031,7 @@ def run_iRF(X_train,
         # based on the specified user proportion
         X_train_rsmpl, y_rsmpl = resample(
             X_train, y_train, n_samples=n_samples)
+        # FIXME in iRF R package, when y is discrete, this should be a stratified bootstrap
 
         # Set up the weighted random forest
         # Using the weight from the (K-1)th iteration i.e. RF(w(K))
