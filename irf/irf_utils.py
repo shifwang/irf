@@ -868,13 +868,13 @@ def _get_stability_score(all_rit_bootstrap_output):
         m) / B for m in all_rit_interactions}
     return stability
 
-
 def run_iRF(X_train,
             X_test,
             y_train,
             y_test,
+            rf,
+            initial_weights = None,
             K=7,
-            n_estimators=20,
             B=10,
             random_state_classifier=2018,
             propn_n_samples=0.2,
@@ -903,6 +903,8 @@ def run_iRF(X_train,
 
     y_test : 1d array-like, or label indicator array / sparse matrix
         Ground truth (correct) target values for testing.
+
+    rf : RandomForestClassifier to fit
 
 
     K : int, optional (default = 7)
@@ -979,13 +981,10 @@ def run_iRF(X_train,
         if k == 0:
 
             # Initially feature weights are None
-            feature_importances = None
+            feature_importances = initial_weights
 
             # Update the dictionary of all our RF weights
             all_rf_weights["rf_weight{}".format(k)] = feature_importances
-
-            # fit RF feature weights i.e. initially None
-            rf = RandomForestClassifier(n_estimators=n_estimators)
 
             # fit the classifier
             rf.fit(
@@ -1003,9 +1002,6 @@ def run_iRF(X_train,
         else:
             # fit weighted RF
             # Use the weights from the previous iteration
-            rf = RandomForestClassifier(n_estimators=n_estimators)
-
-            # fit the classifier
             rf.fit(
                 X=X_train,
                 y=y_train,
