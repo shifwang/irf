@@ -4,7 +4,7 @@ class wrf(RandomForestClassifier):
         for k in range(K):
             if k == 0:
                 # Initially feature weights are None
-                feature_importances = None
+                feature_importances = feature_weight
                 
                 # fit the classifier
                 super(wrf, self).fit(X=X,
