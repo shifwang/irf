@@ -1132,7 +1132,7 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
         super(DecisionTreeRegressor, self).fit(
             X, y,
             sample_weight=sample_weight,
-            feature_weight = feature_weight
+            feature_weight = feature_weight,
             check_input=check_input,
             X_idx_sorted=X_idx_sorted)
         return self
