@@ -1093,7 +1093,7 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
             min_impurity_split=min_impurity_split,
             presort=presort)
 
-    def fit(self, X, y, sample_weight=None, check_input=True,
+    def fit(self, X, y, sample_weight=None, feature_weight=None, check_input=True,
             X_idx_sorted=None):
         """Build a decision tree regressor from the training set (X, y).
 
@@ -1132,6 +1132,7 @@ class DecisionTreeRegressor(BaseDecisionTree, RegressorMixin):
         super(DecisionTreeRegressor, self).fit(
             X, y,
             sample_weight=sample_weight,
+            feature_weight = feature_weight,
             check_input=check_input,
             X_idx_sorted=X_idx_sorted)
         return self
