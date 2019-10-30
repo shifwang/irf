@@ -32,6 +32,7 @@ In order to use irf, you need to import it in python.
 ```python
 import numpy as np
 from irf import irf_utils
+from irf.ensemble import RandomForestClassifier
 ```
 Generate a simple data set with 2 features: 1st feature is a noise feature that has no power in predicting the labels, the 2nd feature determines the label perfectly:
 ```python
@@ -53,6 +54,7 @@ all_rf_weights, all_K_iter_rf_data, \
                                         X_test=X_test,
                                         y_train=y_train,
                                         y_test=y_test,
+                                        rf = RandomForestClassifier(),
                                         K=5,                          # number of iteration
                                         n_estimators=20,              # number of trees in the forest
                                         B=30,
@@ -62,8 +64,7 @@ all_rf_weights, all_K_iter_rf_data, \
                                         M=20,
                                         max_depth=5,
                                         noisy_split=False,
-                                        num_splits=2,
-                                        n_estimators_bootstrap=5)
+                                        num_splits=2)
 ```
 all_rf_weights stores all the weights for each iteration:
 ```python
@@ -75,6 +76,11 @@ print(stability_score)
 ```
 Contributors:
 
+
+Yu(Hue) Wang <wang.yu@berkeley.edu>
+
+Eric Xia <ericzxia@berkeley.edu>
+
 Shamindra Shrotriya <https://github.com/shamindras>
 
 Runjing(Bryan) Liu <runjing_liu@berkeley.edu>
@@ -85,5 +91,4 @@ Chris Holdgraf <choldgraf@berkeley.edu>
 
 Karl Kumbier <kkumbier@berkeley.edu>
 
-Yu(Hue) Wang <wang.yu@berkeley.edu>
 
