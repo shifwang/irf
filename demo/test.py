@@ -1,3 +1,7 @@
+import irf
+import sys
+print(sys.path)
+
 from sklearn.datasets import load_breast_cancer
 import numpy as np
 from functools import reduce
