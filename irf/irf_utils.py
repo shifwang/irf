@@ -150,7 +150,7 @@ def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
 
     # If the object is not a scikit learn classifier then let user know
     if type(inp_class_reg_obj).__name__ not in \
-       ["DecisionTreeClassifier", "RandomForestClassifier"]:
+       ["DecisionTreeClassifier", "RandomForestClassifier", "wrf"]:
         raise TypeError("input needs to be a DecisionTreeClassifier object, \
         you have input a {} object".format(type(inp_class_reg_obj)))
 
