@@ -56,7 +56,6 @@ all_rf_weights, all_K_iter_rf_data, \
                                         y_test=y_test,
                                         rf = RandomForestClassifier(),
                                         K=5,                          # number of iteration
-                                        n_estimators=20,              # number of trees in the forest
                                         B=30,
                                         random_state_classifier=2018, # random seed
                                         propn_n_samples=.2,
