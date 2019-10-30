@@ -89,6 +89,82 @@ def all_tree_paths(dtree, root_node_id=0):
         paths = [root_node_id]
     return paths
 
+def all_tree_signed_paths(dtree, root_node_id=0):
+    """
+    Get all the individual tree signed paths from root node to the leaves
+    for a decision tree classifier object [1]_.
+
+    Parameters
+    ----------
+    dtree : DecisionTreeClassifier object
+        An individual decision tree classifier object generated from a
+        fitted RandomForestClassifier object in scikit learn.
+
+    root_node_id : int, optional (default=0)
+        The index of the root node of the tree. Should be set as default to
+        0 and not changed by the user
+
+    Returns
+    -------
+    paths : list of lists
+        Return a list of lists like this [(feature index, 'L'/'R'),...]
+        taken from the root node to the leaf in the decsion tree
+        classifier. There is an individual array for each
+        leaf node in the decision tree.
+
+    Notes
+    -----
+        To obtain a deterministic behaviour during fitting,
+        ``random_state`` has to be fixed.
+
+    References
+    ----------
+        .. [1] https://en.wikipedia.org/wiki/Decision_tree_learning
+
+    Examples
+    --------
+    >>> from sklearn.datasets import load_breast_cancer
+    >>> from sklearn.model_selection import train_test_split
+    >>> from sklearn.ensemble import RandomForestClassifier
+    >>> raw_data = load_breast_cancer()
+    >>> X_train, X_test, y_train, y_test = train_test_split(
+        raw_data.data, raw_data.target, train_size=0.9,
+        random_state=2017)
+    >>> rf = RandomForestClassifier(
+        n_estimators=3, random_state=random_state_classifier)
+    >>> rf.fit(X=X_train, y=y_train)
+    >>> estimator0 = rf.estimators_[0]
+    >>> tree_dat0 = all_tree_signed_paths(dtree = estimator0,
+                                   root_node_id = 0)
+    >>> tree_dat0
+    ...                             # doctest: +SKIP
+    ...
+    """
+    #TODO: use the decision path function in sklearn to optimize the code
+    
+    # Use these lists to parse the tree structure
+    children_left = dtree.tree_.children_left
+    children_right = dtree.tree_.children_right
+
+    if root_node_id is None:
+        paths = []
+
+    if root_node_id == _tree.TREE_LEAF:
+        raise ValueError("Invalid node_id %s" % _tree.TREE_LEAF)
+
+    # if left/right is None we'll get empty list anyway
+    feature_id = dtree.tree_.feature[root_node_id] 
+    if children_left[root_node_id] != _tree.TREE_LEAF:
+        
+        
+        paths_left = [[(feature_id, 'L')] + l
+                 for l in all_tree_signed_paths(dtree, children_left[root_node_id])]
+        paths_right = [[(feature_id, 'R')] + l
+                 for l in all_tree_signed_paths(dtree, children_right[root_node_id])]
+        paths = paths_left + paths_right
+    else:
+        paths = [[]]
+    return paths
 
 def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
     """
@@ -150,18 +226,19 @@ def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
 
     # If the object is not a scikit learn classifier then let user know
     if type(inp_class_reg_obj).__name__ not in \
-       ["DecisionTreeClassifier", "RandomForestClassifier"]:
-        raise TypeError("input needs to be a DecisionTreeClassifier object, \
+       ["DecisionTreeClassifier", "RandomForestClassifier", 'RandomForestRegressor', 'DecisionTreeRegressor']:
+        raise TypeError("input needs to be a recognizable object, \
         you have input a {} object".format(type(inp_class_reg_obj)))
-
-    # if the number of classes is not binary let the user know accordingly
-    if inp_class_reg_obj.n_classes_ != 2:
-        raise ValueError("The number of classes for classification must \
-        be binary, you currently have fit to {} \
-        classes".format(inp_class_reg_obj.n_classes_))
 
     # Get the predicted values on the validation data
     y_pred = inp_class_reg_obj.predict(X=X_test)
+    
+    if type(inp_class_reg_obj).__name__ in ["DecisionTreeClassifier", "RandomForestClassifier",]:
+    # if the number of classes is not binary let the user know accordingly
+        if inp_class_reg_obj.n_classes_ != 2:
+            raise ValueError("The number of classes for classification must \
+            be binary, you currently have fit to {} \
+            classes".format(inp_class_reg_obj.n_classes_))
 
     # CLASSIFICATION metrics calculations
 
@@ -205,46 +282,57 @@ def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
     # jaccard_similarity_score =
     # metrics.jaccard_similarity_score(y_true = y_true, y_pred = y_pred)
 
-    # Compute the F1 score, also known as balanced F-score or F-measure
-    f1_score = metrics.f1_score(y_true=y_true, y_pred=y_pred)
+        # Compute the F1 score, also known as balanced F-score or F-measure
+        f1_score = metrics.f1_score(y_true=y_true, y_pred=y_pred)
 
-    # Compute the average Hamming loss.
-    hamming_loss = metrics.hamming_loss(y_true=y_true, y_pred=y_pred)
+        # Compute the average Hamming loss.
+        hamming_loss = metrics.hamming_loss(y_true=y_true, y_pred=y_pred)
 
-    # Log loss, aka logistic loss or cross-entropy loss.
-    log_loss = metrics.log_loss(y_true=y_true, y_pred=y_pred)
+        # Log loss, aka logistic loss or cross-entropy loss.
+        log_loss = metrics.log_loss(y_true=y_true, y_pred=y_pred)
 
-    # Compute the precision
-    precision_score = metrics.precision_score(y_true=y_true, y_pred=y_pred)
+        # Compute the precision
+        precision_score = metrics.precision_score(y_true=y_true, y_pred=y_pred)
 
-    # Compute the recall
-    recall_score = metrics.recall_score(y_true=y_true, y_pred=y_pred)
+        # Compute the recall
+        recall_score = metrics.recall_score(y_true=y_true, y_pred=y_pred)
 
-    # Accuracy classification score
-    accuracy_score = metrics.accuracy_score(y_true=y_true, y_pred=y_pred)
+        # Accuracy classification score
+        accuracy_score = metrics.accuracy_score(y_true=y_true, y_pred=y_pred)
 
-    # Build a text report showing the main classification metrics
-    # classification_report = metrics.classification_report(
-    # y_true=y_true, y_pred=y_pred)
+        # Build a text report showing the main classification metrics
+        # classification_report = metrics.classification_report(
+        # y_true=y_true, y_pred=y_pred)
 
-    # Compute confusion matrix to evaluate the accuracy of a classification
-    confusion_matrix = metrics.confusion_matrix(y_true=y_true, y_pred=y_pred)
+        # Compute confusion matrix to evaluate the accuracy of a classification
+        confusion_matrix = metrics.confusion_matrix(y_true=y_true, y_pred=y_pred)
 
-    # Zero-one classification loss.
-    zero_one_loss = metrics.zero_one_loss(y_true=y_true, y_pred=y_pred)
+        # Zero-one classification loss.
+        zero_one_loss = metrics.zero_one_loss(y_true=y_true, y_pred=y_pred)
 
-    # Load all metrics into a single dictionary
-    classification_metrics = {"hamming_loss": hamming_loss,
-                              "log_loss": log_loss,
-                              "recall_score": recall_score,
-                              "precision_score": precision_score,
-                              "accuracy_score": accuracy_score,
-                              "f1_score": f1_score,
-                              # "classification_report": classification_report,
-                              "confusion_matrix": confusion_matrix,
-                              "zero_one_loss": zero_one_loss}
+        # Load all metrics into a single dictionary
+        classification_metrics = {"hamming_loss": hamming_loss,
+                                  "log_loss": log_loss,
+                                  "recall_score": recall_score,
+                                  "precision_score": precision_score,
+                                  "accuracy_score": accuracy_score,
+                                  "f1_score": f1_score,
+                                  # "classification_report": classification_report,
+                                  "confusion_matrix": confusion_matrix,
+                                  "zero_one_loss": zero_one_loss}
 
-    return classification_metrics
+        return classification_metrics
+    elif type(inp_class_reg_obj).__name__ in ["RandomForestRegressor", 'DecisionTreeRegressor']:
+        
+        mse_loss = metrics.mean_squared_error(y_true=y_true, y_pred=y_pred)
+        mae_loss = metrics.median_absolute_error(y_true=y_true, y_pred=y_pred)
+        regression_metrics = {"mse_loss": mse_loss,
+                              "mae_loss": mae_loss,
+                             }
+        return regression_metrics
+    else:
+        raise TypeError('type of the input RF not recognized. {}'.format(type(inp_class_reg_obj).__name__))
+        
 
 
 def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0):
@@ -545,9 +633,13 @@ def _dtree_filter_comp(dtree_data,
     leaf_node_classes = dtree_data['all_leaf_node_classes']
 
     # perform the filtering and return list
-    return [i for i, j in zip(dtree_values,
+    if bin_class_type is not None:
+        return [i for i, j in zip(dtree_values,
                               leaf_node_classes)
             if j == bin_class_type]
+    else:
+        return list(dtree_values)
+        
 
 
 def filter_leaves_classifier(dtree_data,
@@ -613,7 +705,6 @@ def weighted_random_choice(values, weights):
     """
     if not len(weights) == len(values):
         raise ValueError('Equal number of values and weights expected')
-
     weights = np.array(weights)
     # normalize the weights
     weights = weights / weights.sum()
@@ -873,6 +964,7 @@ def run_iRF(X_train,
             y_train,
             y_test,
             rf,
+            rf_bootstrap = None,
             initial_weights = None,
             K=7,
             B=10,
@@ -883,7 +975,7 @@ def run_iRF(X_train,
             max_depth=2,
             noisy_split=False,
             num_splits=2,
-            n_estimators_bootstrap=5):
+            ):
     """
     Runs the iRF algorithm in full.
 
@@ -904,8 +996,10 @@ def run_iRF(X_train,
     y_test : 1d array-like, or label indicator array / sparse matrix
         Ground truth (correct) target values for testing.
 
-    rf : RandomForestClassifier to fit
-
+    rf : RandomForest model to fit
+    
+    rf_bootstrap : random forest model to fit in the RIT stage, default None, which means it is the same as rf.
+        The number of trees in this model should be set smaller as this step is quite time consuming.
 
     K : int, optional (default = 7)
         The number of iterations in iRF.
@@ -937,9 +1031,7 @@ def run_iRF(X_train,
         based on the outcome of a bernoulli(0.5)
         random variable
 
-    n_estimators_bootstrap : int, optional (default = 5)
-        The number of trees in the random forest when
-        fitting to bootstrap samples
+
 
     Returns
     --------
@@ -976,7 +1068,7 @@ def run_iRF(X_train,
 
     # Initialize dictionary of bootstrap RIT output
     all_rit_bootstrap_output = {}
-
+    
     for k in range(K):
         if k == 0:
 
@@ -1021,6 +1113,8 @@ def run_iRF(X_train,
             y_test=y_test)
 
     # Run the RITs
+    if rf_bootstrap is None:
+            rf_bootstrap = rf
     for b in range(B):
 
         # Take a bootstrap sample from the training data
@@ -1031,10 +1125,6 @@ def run_iRF(X_train,
 
         # Set up the weighted random forest
         # Using the weight from the (K-1)th iteration i.e. RF(w(K))
-        rf_bootstrap = RandomForestClassifier(
-            # CHECK: different number of trees to fit for bootstrap samples
-            n_estimators=n_estimators_bootstrap)
-
         # Fit RF(w(K)) on the bootstrapped dataset
         rf_bootstrap.fit(
             X=X_train_rsmpl,
