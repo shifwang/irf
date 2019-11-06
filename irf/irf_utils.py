@@ -14,6 +14,10 @@ from sklearn.utils import resample
 from .ensemble import RandomForestClassifier
 from math import ceil
 
+# Needed for FPGrowth
+from pyspark.ml.fpm import FPGrowth
+from pyspark.sql import SparkSession
+from pyspark.sql.types import *
 
 def all_tree_paths(dtree, root_node_id=0):
     """
@@ -155,15 +159,13 @@ def all_tree_signed_paths(dtree, root_node_id=0):
     # if left/right is None we'll get empty list anyway
     feature_id = dtree.tree_.feature[root_node_id] 
     if children_left[root_node_id] != _tree.TREE_LEAF:
-        
-        
-        paths_left = [[(feature_id, 'L')] + l
+        paths_left = [[(root_node_id, 'L')] + l
                  for l in all_tree_signed_paths(dtree, children_left[root_node_id])]
-        paths_right = [[(feature_id, 'R')] + l
+        paths_right = [[(root_node_id, 'R')] + l
                  for l in all_tree_signed_paths(dtree, children_right[root_node_id])]
         paths = paths_left + paths_right
     else:
-        paths = [[]]
+        paths = [[(root_node_id, )]]
     return paths
 
 def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
@@ -335,7 +337,7 @@ def get_validation_metrics(inp_class_reg_obj, y_true, X_test):
         
 
 
-def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0):
+def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0, signed=False):
     """
     This returns all of the required summary results from an
     individual decision tree
@@ -360,6 +362,9 @@ def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0):
     root_node_id : int, optional (default=0)
         The index of the root node of the tree. Should be set as default to
         0 and not changed by the user
+
+    signed : bool, optional (default=False)
+        Indicates whether to use signed interactions or not
 
     Returns
     -------
@@ -421,12 +426,19 @@ def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0):
     num_features_used = (np.unique(node_features_idx)).shape[0]
 
     # Get all of the paths used in the tree
-    all_leaf_node_paths = all_tree_paths(dtree=dtree,
-                                         root_node_id=root_node_id)
+    if not signed:
+        all_leaf_node_paths = all_tree_paths(dtree=dtree,
+                                             root_node_id=root_node_id)
+    else:
+        all_leaf_node_paths = all_tree_signed_paths(dtree=dtree,
+                                                    root_node_id=root_node_id)
 
     # Get list of leaf nodes
     # In all paths it is the final node value
-    all_leaf_nodes = [path[-1] for path in all_leaf_node_paths]
+    if not signed:
+        all_leaf_nodes = [path[-1] for path in all_leaf_node_paths]
+    else:
+        all_leaf_nodes = [path[-1][0] for path in all_leaf_node_paths]
 
     # Get the total number of training samples used in each leaf node
     all_leaf_node_samples = [n_node_samples[node_id].astype(int)
@@ -466,13 +478,31 @@ def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0):
     # Investigate further
     # Removed the final leaf node value so that this feature does not get
     # included currently
-    all_leaf_paths_features = [node_features_idx[path[:-1]]
-                               for path in all_leaf_node_paths]
+    if not signed:
+        all_leaf_paths_features = [node_features_idx[path[:-1]]
+                                    for path in all_leaf_node_paths]
+    else:
+        all_leaf_paths_features = []
+        for path in all_leaf_node_paths:
+            temp = []
+            all_but_last = path[:-1]
+            for elem in all_but_last:
+                temp.append((node_features_idx[elem[0]], elem[1]))
+            all_leaf_paths_features += [temp]
 
     # Get the unique list of features along a path
     # NOTE: This removes the original ordering of the features along the path
     # The original ordering could be preserved using a special function but
     # will increase runtime
+    if signed:
+        new_all_leaf_paths_features = []
+        for path in all_leaf_paths_features:
+            new_path = []
+            for elem in path:
+                new_path.append(str(elem[0]) + elem[1])
+            new_all_leaf_paths_features += [new_path]
+        all_leaf_paths_features = new_all_leaf_paths_features
+
     all_uniq_leaf_paths_features = [
         np.unique(feature_path) for feature_path in all_leaf_paths_features]
 
@@ -505,7 +535,7 @@ def get_tree_data(X_train, X_test, y_test, dtree, root_node_id=0):
 # Get all RF and decision tree data
 
 
-def get_rf_tree_data(rf, X_train, X_test, y_test):
+def get_rf_tree_data(rf, X_train, X_test, y_test, signed=False):
     """
     Get the entire fitted random forest and its decision tree data
     as a convenient dictionary format
@@ -540,7 +570,8 @@ def get_rf_tree_data(rf, X_train, X_test, y_test):
                                   X_test=X_test,
                                   y_test=y_test,
                                   dtree=dtree,
-                                  root_node_id=0)
+                                  root_node_id=0,
+                                  signed=signed)
 
         # Append output to our combined random forest outputs dict
         all_rf_tree_outputs["dtree{}".format(idx)] = dtree_out
@@ -555,7 +586,8 @@ def get_rit_tree_data(all_rf_tree_data,
                       M=10,  # number of trees (RIT) to build
                       max_depth=3,
                       noisy_split=False,
-                      num_splits=2):
+                      num_splits=2,
+                      weighted_by_length=False):
     """
     A wrapper for the Random Intersection Trees (RIT) algorithm
     """
@@ -567,7 +599,8 @@ def get_rit_tree_data(all_rf_tree_data,
         # Create the weighted randomly sampled paths as a generator
         gen_random_leaf_paths = generate_rit_samples(
             all_rf_tree_data=all_rf_tree_data,
-            bin_class_type=bin_class_type)
+            bin_class_type=bin_class_type,
+            weighted_by_length=weighted_by_length)
 
         # Create the RIT object
         rit = build_tree(feature_paths=gen_random_leaf_paths,
@@ -577,8 +610,10 @@ def get_rit_tree_data(all_rf_tree_data,
 
         # Get the intersected node values
         # CHECK remove this for the final value
+
         rit_intersected_values = [
             node[1]._val for node in rit.traverse_depth_first()]
+
         # Leaf node values i.e. final intersected features
         rit_leaf_node_values = [node[1]._val for node in rit.leaf_nodes()]
         rit_leaf_node_union_value = reduce(np.union1d, rit_leaf_node_values)
@@ -693,7 +728,7 @@ def filter_leaves_classifier(dtree_data,
     return all_filtered_outputs
 
 
-def weighted_random_choice(values, weights):
+def weighted_random_choice(values, weights, length_weights=None):
     """
     Discrete distribution, drawing values with the frequency
     specified in weights.
@@ -706,6 +741,9 @@ def weighted_random_choice(values, weights):
     if not len(weights) == len(values):
         raise ValueError('Equal number of values and weights expected')
     weights = np.array(weights)
+    if length_weights: # increasing weights with increasing length
+        #print(length_weights)
+        weights = np.multiply(weights, np.array(length_weights))
     # normalize the weights
     weights = weights / weights.sum()
     dist = stats.rv_discrete(values=(range(len(weights)), weights))
@@ -716,7 +754,7 @@ def weighted_random_choice(values, weights):
         yield values[dist.rvs()]
 
 
-def generate_rit_samples(all_rf_tree_data, bin_class_type=1):
+def generate_rit_samples(all_rf_tree_data, bin_class_type=1, weighted_by_length=False):
     """
     Draw weighted samples from all possible decision paths
     from the decision trees in the fitted random forest object
@@ -727,6 +765,7 @@ def generate_rit_samples(all_rf_tree_data, bin_class_type=1):
 
     all_weights = []
     all_paths = []
+    length_weights = []
     for dtree in range(n_estimators):
         filtered = filter_leaves_classifier(
             dtree_data=all_rf_tree_data['dtree{}'.format(dtree)],
@@ -734,9 +773,14 @@ def generate_rit_samples(all_rf_tree_data, bin_class_type=1):
         all_weights.extend(filtered['tot_leaf_node_values'])
         all_paths.extend(filtered['uniq_feature_paths'])
 
+        #check if we want leaf_nodes_depths or leaf_nodes_depths - 1
+        length_weights.extend(filtered['leaf_nodes_depths']) 
+
     # Return the generator of randomly sampled observations
     # by specified weights
-    return weighted_random_choice(all_paths, all_weights)
+    if not weighted_by_length:
+        length_weights = None
+    return weighted_random_choice(all_paths, all_weights, length_weights)
 
 
 def select_random_path():
@@ -834,7 +878,6 @@ def build_tree(feature_paths, max_depth=3,
                 "Random intersection trees." Journal of
                 Machine Learning Research 15.1 (2014): 629-654.
     """
-
     expand_tree = partial(build_tree, feature_paths,
                           max_depth=max_depth,
                           num_splits=num_splits,
@@ -975,7 +1018,8 @@ def run_iRF(X_train,
             max_depth=2,
             noisy_split=False,
             num_splits=2,
-            ):
+            signed=False,
+            weighted_by_length=False):
     """
     Runs the iRF algorithm in full.
 
@@ -1110,7 +1154,8 @@ def run_iRF(X_train,
             rf=rf,
             X_train=X_train,
             X_test=X_test,
-            y_test=y_test)
+            y_test=y_test,
+            signed=signed)
 
     # Run the RITs
     if rf_bootstrap is None:
@@ -1137,7 +1182,8 @@ def run_iRF(X_train,
             rf=rf_bootstrap,
             X_train=X_train_rsmpl,
             X_test=X_test,
-            y_test=y_test)
+            y_test=y_test,
+            signed=signed)
 
         # Update the rf bootstrap output dictionary
         all_rf_bootstrap_output['rf_bootstrap{}'.format(b)] = all_rf_tree_data
@@ -1151,7 +1197,8 @@ def run_iRF(X_train,
             M=M,
             max_depth=max_depth,
             noisy_split=noisy_split,
-            num_splits=num_splits)
+            num_splits=num_splits,
+            weighted_by_length=weighted_by_length)
 
         # Update the rf bootstrap output dictionary
         # We will reference the RIT for a particular rf bootstrap
@@ -1166,6 +1213,264 @@ def run_iRF(X_train,
     return all_rf_weights,\
         all_K_iter_rf_data, all_rf_bootstrap_output,\
         all_rit_bootstrap_output, stability_score
+
+def run_iRF_FPGrowth(X_train,
+            X_test,
+            y_train,
+            y_test,
+            rf,
+            rf_bootstrap = None,
+            initial_weights = None,
+            K=7,
+            B=10,
+            random_state_classifier=2018,
+            propn_n_samples=0.2,
+            bin_class_type=1,
+            M=4,
+            max_depth=2,
+            noisy_split=False,
+            num_splits=2,
+            min_confidence=0.8,
+            min_support=0.1,
+            with_bootstrap=False,
+            signed=False):
+    """
+    Runs the iRF algorithm but instead of RIT for interactions, runs FP-Growth through Spark.
+
+
+    Parameters
+    --------
+    X_train : array-like or sparse matrix, shape = [n_samples, n_features]
+        Training vector, where n_samples in the number of samples and
+        n_features is the number of features.
+
+    X_test : array-like or sparse matrix, shape = [n_samples, n_features]
+        Test vector, where n_samples in the number of samples and
+        n_features is the number of features.
+
+    y_train : 1d array-like, or label indicator array / sparse matrix
+        Ground truth (correct) target values for training.
+
+    y_test : 1d array-like, or label indicator array / sparse matrix
+        Ground truth (correct) target values for testing.
+
+    rf : RandomForest model to fit
+    
+    rf_bootstrap : random forest model to fit in the RIT stage, default None, which means it is the same as rf.
+        The number of trees in this model should be set smaller as this step is quite time consuming.
+
+    K : int, optional (default = 7)
+        The number of iterations in iRF.
+
+    n_estimators : int, optional (default = 20)
+        The number of trees in the random forest when computing weights.
+
+    B : int, optional (default = 10)
+        The number of bootstrap samples
+
+    random_state_classifier : int, optional (default = 2018)
+        The random seed for reproducibility.
+
+    propn_n_samples : float, optional (default = 0.2)
+        The proportion of samples drawn for bootstrap.
+
+    bin_class_type : int, optional (default = 1)
+        ...
+
+    max_depth : int, optional (default = 2)
+        The built tree will never be deeper than `max_depth`.
+
+    num_splits : int, optional (default = 2)
+            At each node, the maximum number of children to be added.
+
+    noisy_split: bool, optional (default = False)
+        At each node if True, then number of children to
+        split will be (`num_splits`, `num_splits + 1`)
+        based on the outcome of a bernoulli(0.5)
+        random variable
+
+    min_confidence: float, optional (default = 0.8)
+        FP-Growth has a parameter min_confidence which is the minimum frequency of an interaction set amongst all transactions
+        in order for it to be returned
+
+
+
+    Returns
+    --------
+    all_rf_weights: dict
+        stores feature weights across all iterations
+
+    all_rf_bootstrap_output: dict
+        stores rf information across all bootstrap samples
+
+    all_rit_bootstrap_output: dict
+        stores rit information across all bootstrap samples
+
+    stability_score: dict
+        stores interactions in as its keys and stabilities scores as the values
+
+    """
+
+    # Set the random state for reproducibility
+    np.random.seed(random_state_classifier)
+
+    # Convert the bootstrap resampling proportion to the number
+    # of rows to resample from the training data
+    n_samples = ceil(propn_n_samples * X_train.shape[0])
+
+    # All Random Forest data
+    all_K_iter_rf_data = {}
+
+    # Initialize dictionary of rf weights
+    # CHECK: change this name to be `all_rf_weights_output`
+    all_rf_weights = {}
+
+    # Initialize dictionary of bootstrap rf output
+    all_rf_bootstrap_output = {}
+
+    # Initialize dictionary of bootstrap RIT output
+    all_rit_bootstrap_output = {}
+    
+    for k in range(K):
+        if k == 0:
+
+            # Initially feature weights are None
+            feature_importances = initial_weights
+
+            # Update the dictionary of all our RF weights
+            all_rf_weights["rf_weight{}".format(k)] = feature_importances
+
+            # fit the classifier
+            rf.fit(
+                X=X_train,
+                y=y_train,
+                feature_weight=all_rf_weights["rf_weight{}".format(k)])
+
+            # Update feature weights using the
+            # new feature importance score
+            feature_importances = rf.feature_importances_
+
+            # Load the weights for the next iteration
+            all_rf_weights["rf_weight{}".format(k + 1)] = feature_importances
+
+        else:
+            # fit weighted RF
+            # Use the weights from the previous iteration
+            rf.fit(
+                X=X_train,
+                y=y_train,
+                feature_weight=all_rf_weights["rf_weight{}".format(k)])
+
+            # Update feature weights using the
+            # new feature importance score
+            feature_importances = rf.feature_importances_
+
+            # Load the weights for the next iteration
+            all_rf_weights["rf_weight{}".format(k + 1)] = feature_importances
+
+        all_K_iter_rf_data["rf_iter{}".format(k)] = get_rf_tree_data(
+            rf=rf,
+            X_train=X_train,
+            X_test=X_test,
+            y_test=y_test,
+            signed=signed)
+
+
+    # Run FP-Growth
+    if not with_bootstrap:
+        all_rf_tree_data = get_rf_tree_data(
+            rf=rf,
+            X_train=X_train,
+            X_test=X_test,
+            y_test=y_test,
+            signed=signed)
+
+        all_FP_Growth_data = generate_all_samples(all_rf_tree_data, bin_class_type)
+        spark = SparkSession \
+                    .builder \
+                    .appName("iterative Random Forests with FP-Growth") \
+                    .getOrCreate()
+    
+        input_list = [(i, all_FP_Growth_data[i].tolist()) for i in range(len(all_FP_Growth_data))]
+        df = spark.createDataFrame(input_list, ["id", "items"])
+
+        fpGrowth = FPGrowth(itemsCol="items", minSupport=min_support, minConfidence=min_confidence)
+        model = fpGrowth.fit(df)
+        return all_rf_weights, all_K_iter_rf_data, model
+
+    raise RuntimeException("Unsure how bootstrap should be implemented (if at all) currently")
+    # Run the RITs
+    if rf_bootstrap is None:
+            rf_bootstrap = rf
+    for b in range(B):
+
+        # Take a bootstrap sample from the training data
+        # based on the specified user proportion
+        X_train_rsmpl, y_rsmpl = resample(
+            X_train, y_train, n_samples=n_samples)
+        # FIXME in iRF R package, when y is discrete, this should be a stratified bootstrap
+
+        # Set up the weighted random forest
+        # Using the weight from the (K-1)th iteration i.e. RF(w(K))
+        # Fit RF(w(K)) on the bootstrapped dataset
+        rf_bootstrap.fit(
+            X=X_train_rsmpl,
+            y=y_rsmpl,
+            feature_weight=all_rf_weights["rf_weight{}".format(K)])
+
+        # All RF tree data
+        # CHECK: why do we need y_train here?
+        all_rf_tree_data = get_rf_tree_data(
+            rf=rf_bootstrap,
+            X_train=X_train_rsmpl,
+            X_test=X_test,
+            y_test=y_test,
+            signed=signed)
+
+        # Update the rf bootstrap output dictionary
+        all_rf_bootstrap_output['rf_bootstrap{}'.format(b)] = all_rf_tree_data
+
+        # Run RIT on the interaction rule set
+        # CHECK - each of these variables needs to be passed into
+        # the main run_rit function
+        # all_rit_tree_data = get_rit_tree_data(
+        #     all_rf_tree_data=all_rf_tree_data,
+        #     bin_class_type=bin_class_type,
+        #     M=M,
+        #     max_depth=max_depth,
+        #     noisy_split=noisy_split,
+        #     num_splits=num_splits)
+
+        # Run FP-Growth on interaction rule set
+        all_FP_Growth_data = generate_all_samples(all_rf_tree_data, bin_class_type)
+        print(all_FP_Growth_data)
+        raise RuntimeException("We done here")
+
+        # Update the rf bootstrap output dictionary
+        # We will reference the RIT for a particular rf bootstrap
+        # using the specific bootstrap id - consistent with the
+        # rf bootstrap output data
+        all_rit_bootstrap_output['rf_bootstrap{}'.format(
+            b)] = all_rit_tree_data
+
+    stability_score = _get_stability_score(
+        all_rit_bootstrap_output=all_rit_bootstrap_output)
+
+    return all_rf_weights,\
+        all_K_iter_rf_data, all_rf_bootstrap_output,\
+        all_rit_bootstrap_output, stability_score
+
+def generate_all_samples(all_rf_tree_data, bin_class_type=1):
+    n_estimators = all_rf_tree_data['rf_obj'].n_estimators
+
+    all_paths = []
+    for dtree in range(n_estimators):
+        filtered = filter_leaves_classifier(
+            dtree_data=all_rf_tree_data['dtree{}'.format(dtree)],
+            bin_class_type=bin_class_type)
+        all_paths.extend(filtered['uniq_feature_paths'])
+
+    return all_paths
 
 
 def _hist_features(all_rf_tree_data, n_estimators,
