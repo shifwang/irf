@@ -4,6 +4,7 @@ import irf.ensemble.wrf as wrf
 from irf.ensemble import RandomForestClassifier
 from irf.ensemble.wrf import wrf_reg
 import numpy as np
+import pandas as pd
 
 from sklearn.model_selection import train_test_split
 
@@ -23,6 +24,14 @@ a, b, c, d, e = irf_utils.run_iRF(X_train=X_train,
                                     y_test=y_test,
                                     K=5,
                                     rf=RandomForestClassifier(n_estimators=40),
-                                    signed=True,
-                                    weighted_by_length=False)
+                                    signed=False,
+                                    weighted_by_length=True)
 print(e)
+
+_, _, _, _, stability_score = irf_utils.run_iRF_FPGrowth(X_train=X_train,
+                                    X_test=X_test,
+                                    y_train=y_train,
+                                    y_test=y_test,
+                                    K=5,
+                                    rf=RandomForestClassifier(n_estimators=40))
+print(stability_score)

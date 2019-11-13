@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import numpy as np
+import pandas as pd
 from sklearn import metrics
 from . import tree
 from .tree import _tree
@@ -743,7 +744,7 @@ def weighted_random_choice(values, weights, length_weights=None):
     weights = np.array(weights)
     if length_weights: # increasing weights with increasing length
         #print(length_weights)
-        weights = np.multiply(weights, np.array(length_weights))
+        weights = np.multiply(weights, np.power(2., -np.array(length_weights)))
     # normalize the weights
     weights = weights / weights.sum()
     dist = stats.rv_discrete(values=(range(len(weights)), weights))
@@ -1214,6 +1215,36 @@ def run_iRF(X_train,
         all_K_iter_rf_data, all_rf_bootstrap_output,\
         all_rit_bootstrap_output, stability_score
 
+def _FP_Growth_get_stability_score(all_FP_Growth_bootstrap_output, bootstrap_num):
+    """
+    Get the stabilty score from B bootstrap Random Forest
+    Fits with FP-Growth
+    """
+
+    # Initialize values
+    bootstrap_interact = []
+    B = len(all_FP_Growth_bootstrap_output)
+
+    for b in range(B):
+        itemsets = all_FP_Growth_bootstrap_output['rf_bootstrap{}'.format(b)]
+        top_itemsets = itemsets.head(bootstrap_num)
+        top_itemsets = list(top_itemsets["items"].map(list_to_string))
+        bootstrap_interact.append(top_itemsets)
+
+    def flatten(l): return [item for sublist in l for item in sublist]
+    all_FP_Growth_interactions = flatten(bootstrap_interact)
+    stability = {m: all_FP_Growth_interactions.count(
+        m) / B for m in all_FP_Growth_interactions}
+    return stability
+
+def list_to_string(itemsets):
+    # Given a list of features, return in the "a_b_c" form
+    itemsets.sort()
+    inter = ""
+    for elem in itemsets:
+        inter += str(elem) + "_"
+    return inter[:-1]
+
 def run_iRF_FPGrowth(X_train,
             X_test,
             y_train,
@@ -1226,14 +1257,10 @@ def run_iRF_FPGrowth(X_train,
             random_state_classifier=2018,
             propn_n_samples=0.2,
             bin_class_type=1,
-            M=4,
-            max_depth=2,
-            noisy_split=False,
-            num_splits=2,
             min_confidence=0.8,
             min_support=0.1,
-            with_bootstrap=False,
-            signed=False):
+            signed=False,
+            bootstrap_num=5):
     """
     Runs the iRF algorithm but instead of RIT for interactions, runs FP-Growth through Spark.
 
@@ -1277,22 +1304,12 @@ def run_iRF_FPGrowth(X_train,
     bin_class_type : int, optional (default = 1)
         ...
 
-    max_depth : int, optional (default = 2)
-        The built tree will never be deeper than `max_depth`.
-
-    num_splits : int, optional (default = 2)
-            At each node, the maximum number of children to be added.
-
-    noisy_split: bool, optional (default = False)
-        At each node if True, then number of children to
-        split will be (`num_splits`, `num_splits + 1`)
-        based on the outcome of a bernoulli(0.5)
-        random variable
-
     min_confidence: float, optional (default = 0.8)
         FP-Growth has a parameter min_confidence which is the minimum frequency of an interaction set amongst all transactions
         in order for it to be returned
-
+    
+    bootstrap_num: float, optional (default = 5)
+        Top number used in computing the stability score
 
 
     Returns
@@ -1328,8 +1345,8 @@ def run_iRF_FPGrowth(X_train,
     # Initialize dictionary of bootstrap rf output
     all_rf_bootstrap_output = {}
 
-    # Initialize dictionary of bootstrap RIT output
-    all_rit_bootstrap_output = {}
+    # Initialize dictionary of bootstrap FP-Growth output
+    all_FP_Growth_bootstrap_output = {}
     
     for k in range(K):
         if k == 0:
@@ -1375,31 +1392,7 @@ def run_iRF_FPGrowth(X_train,
             y_test=y_test,
             signed=signed)
 
-
-    # Run FP-Growth
-    if not with_bootstrap:
-        all_rf_tree_data = get_rf_tree_data(
-            rf=rf,
-            X_train=X_train,
-            X_test=X_test,
-            y_test=y_test,
-            signed=signed)
-
-        all_FP_Growth_data = generate_all_samples(all_rf_tree_data, bin_class_type)
-        spark = SparkSession \
-                    .builder \
-                    .appName("iterative Random Forests with FP-Growth") \
-                    .getOrCreate()
-    
-        input_list = [(i, all_FP_Growth_data[i].tolist()) for i in range(len(all_FP_Growth_data))]
-        df = spark.createDataFrame(input_list, ["id", "items"])
-
-        fpGrowth = FPGrowth(itemsCol="items", minSupport=min_support, minConfidence=min_confidence)
-        model = fpGrowth.fit(df)
-        return all_rf_weights, all_K_iter_rf_data, model
-
-    raise RuntimeException("Unsure how bootstrap should be implemented (if at all) currently")
-    # Run the RITs
+    # Run the FP-Growths
     if rf_bootstrap is None:
             rf_bootstrap = rf
     for b in range(B):
@@ -1430,35 +1423,33 @@ def run_iRF_FPGrowth(X_train,
         # Update the rf bootstrap output dictionary
         all_rf_bootstrap_output['rf_bootstrap{}'.format(b)] = all_rf_tree_data
 
-        # Run RIT on the interaction rule set
-        # CHECK - each of these variables needs to be passed into
-        # the main run_rit function
-        # all_rit_tree_data = get_rit_tree_data(
-        #     all_rf_tree_data=all_rf_tree_data,
-        #     bin_class_type=bin_class_type,
-        #     M=M,
-        #     max_depth=max_depth,
-        #     noisy_split=noisy_split,
-        #     num_splits=num_splits)
-
         # Run FP-Growth on interaction rule set
         all_FP_Growth_data = generate_all_samples(all_rf_tree_data, bin_class_type)
-        print(all_FP_Growth_data)
-        raise RuntimeException("We done here")
+        spark = SparkSession \
+                    .builder \
+                    .appName("iterative Random Forests with FP-Growth") \
+                    .getOrCreate()
+    
+        # Load all interactions into Spark dataframe
+        input_list = [(i, all_FP_Growth_data[i].tolist()) for i in range(len(all_FP_Growth_data))]
+        df = spark.createDataFrame(input_list, ["id", "items"])
 
-        # Update the rf bootstrap output dictionary
-        # We will reference the RIT for a particular rf bootstrap
-        # using the specific bootstrap id - consistent with the
-        # rf bootstrap output data
-        all_rit_bootstrap_output['rf_bootstrap{}'.format(
-            b)] = all_rit_tree_data
+        # Run FP-Growth on data
+        fpGrowth = FPGrowth(itemsCol="items", minSupport=min_support, minConfidence=min_confidence)
+        model = fpGrowth.fit(df)       
+        item_sets = model.freqItemsets.toPandas()
 
-    stability_score = _get_stability_score(
-        all_rit_bootstrap_output=all_rit_bootstrap_output)
+        # Update the rf_FP_Growth bootstrap output dictionary
+        item_sets = item_sets.sort_values(by=["freq"], ascending=False)
+        all_FP_Growth_bootstrap_output['rf_bootstrap{}'.format(
+            b)] = item_sets
+
+    stability_score = _FP_Growth_get_stability_score(
+        all_FP_Growth_bootstrap_output=all_FP_Growth_bootstrap_output, bootstrap_num=bootstrap_num)
 
     return all_rf_weights,\
         all_K_iter_rf_data, all_rf_bootstrap_output,\
-        all_rit_bootstrap_output, stability_score
+        all_FP_Growth_bootstrap_output, stability_score
 
 def generate_all_samples(all_rf_tree_data, bin_class_type=1):
     n_estimators = all_rf_tree_data['rf_obj'].n_estimators
@@ -1469,7 +1460,6 @@ def generate_all_samples(all_rf_tree_data, bin_class_type=1):
             dtree_data=all_rf_tree_data['dtree{}'.format(dtree)],
             bin_class_type=bin_class_type)
         all_paths.extend(filtered['uniq_feature_paths'])
-
     return all_paths
 
 
