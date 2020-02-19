@@ -12,7 +12,9 @@ import matplotlib.pyplot as plt
 
 # Needed for the scikit-learn wrapper function
 from sklearn.utils import resample
-from .ensemble import RandomForestClassifier
+from .ensemble import (RandomForestClassifierWithWeights,
+                       RandomForestRegressorWithWeights,
+                       wrf, wrf_reg)
 from math import ceil
 
 # Needed for FPGrowth
@@ -1327,7 +1329,7 @@ def run_iRF_FPGrowth(X_train,
         stores interactions in as its keys and stabilities scores as the values
 
     """
-
+    print("iRF FP_Growth has been updated")
     # Set the random state for reproducibility
     np.random.seed(random_state_classifier)
 
@@ -1348,49 +1350,17 @@ def run_iRF_FPGrowth(X_train,
     # Initialize dictionary of bootstrap FP-Growth output
     all_FP_Growth_bootstrap_output = {}
     
-    for k in range(K):
-        if k == 0:
-
-            # Initially feature weights are None
-            feature_importances = initial_weights
-
-            # Update the dictionary of all our RF weights
-            all_rf_weights["rf_weight{}".format(k)] = feature_importances
-
-            # fit the classifier
-            rf.fit(
-                X=X_train,
-                y=y_train,
-                feature_weight=all_rf_weights["rf_weight{}".format(k)])
-
-            # Update feature weights using the
-            # new feature importance score
-            feature_importances = rf.feature_importances_
-
-            # Load the weights for the next iteration
-            all_rf_weights["rf_weight{}".format(k + 1)] = feature_importances
-
-        else:
-            # fit weighted RF
-            # Use the weights from the previous iteration
-            rf.fit(
-                X=X_train,
-                y=y_train,
-                feature_weight=all_rf_weights["rf_weight{}".format(k)])
-
-            # Update feature weights using the
-            # new feature importance score
-            feature_importances = rf.feature_importances_
-
-            # Load the weights for the next iteration
-            all_rf_weights["rf_weight{}".format(k + 1)] = feature_importances
-
-        all_K_iter_rf_data["rf_iter{}".format(k)] = get_rf_tree_data(
-            rf=rf,
-            X_train=X_train,
-            X_test=X_test,
-            y_test=y_test,
-            signed=signed)
+    if type(rf) is RandomForestClassifierWithWeights:
+        weightedRF = wrf(**rf.get_params())
+    elif type(rf) is RandomForestRegressorWithWeights:
+        weightedRF = wrf_reg(**rf.get_params())
+    else:
+        raise ValueError('the type of rf cannot be {}'.format(type(rf)))
+    
+    weightedRF.fit(X=X_train, y=y_train, feature_weight = initial_weights, K=K,
+                   X_test = X_test, y_test = y_test)
+    all_rf_weights = weightedRF.all_rf_weights
+    all_K_iter_rf_data = weightedRF.all_K_iter_rf_data
 
     # Run the FP-Growths
     if rf_bootstrap is None:
@@ -1399,12 +1369,20 @@ def run_iRF_FPGrowth(X_train,
 
         # Take a bootstrap sample from the training data
         # based on the specified user proportion
-        X_train_rsmpl, y_rsmpl = resample(
-            X_train, y_train, n_samples=n_samples)
-        # FIXME in iRF R package, when y is discrete, this should be a stratified bootstrap
+        if isinstance(rf, ClassifierMixin):
+            X_train_rsmpl, y_rsmpl = resample(
+                X_train, y_train, n_samples=n_samples, stratify = y_train)
+        else:
+            X_train_rsmpl, y_rsmpl = resample(
+                X_train, y_train, n_samples=n_samples)
 
         # Set up the weighted random forest
         # Using the weight from the (K-1)th iteration i.e. RF(w(K))
+        rf_bootstrap = clone(rf)
+        
+        # CHECK: different number of trees to fit for bootstrap samples
+        rf_bootstrap.n_estimators=n_estimators_bootstrap
+
         # Fit RF(w(K)) on the bootstrapped dataset
         rf_bootstrap.fit(
             X=X_train_rsmpl,
